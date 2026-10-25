@@ -4,10 +4,18 @@ import { checkActivity, isRestricted, initializeSecurity, resetSecurity, reportI
 const form = document.querySelector('#application-form');
 const filter = document.querySelector('#filter');
 const list = document.querySelector('#application-list');
+const submitButton = document.querySelector('#submit-button');
 const names = { html: 'HTML и CSS', javascript: 'JavaScript и DOM', api: 'HTTP и API' };
 let applications = [];
 let selectedId = null;
 let revision = 0;
+let submitting = false;
+
+function setSubmitting(value) {
+  submitting = value;
+  submitButton.disabled = value;
+  form.setAttribute('aria-busy', String(value));
+}
 
 function setFormStatus(text, state = 'idle') {
   const status = document.querySelector('#form-status');
@@ -29,7 +37,7 @@ function validate(values) {
 }
 
 function renderComment(element, text) {
-  element.innerHTML = text || 'Без комментария';
+  element.textContent = text || 'Без комментария';
 }
 
 function renderSelection() {
@@ -46,7 +54,7 @@ function renderApplications() {
   const visible = applications.filter(item => filter.value === 'all' || item.topic === filter.value);
   const focusedId = document.activeElement?.closest('.application-card')?.dataset.id;
   list.replaceChildren();
-  document.querySelector('#application-count').textContent = String(applications.length);
+  document.querySelector('#application-count').textContent = String(visible.length);
   document.querySelector('#empty-state').hidden = visible.length > 0;
 
   for (const application of visible) {
@@ -76,8 +84,7 @@ function renderApplications() {
     arrow.setAttribute('aria-hidden', 'true');
     body.append(name, topic, comment);
     card.append(index, body, arrow);
-    card.addEventListener('click', event => {
-      if (event.target !== card) return;
+    card.addEventListener('click', () => {
       selectedId = application.id;
       renderApplications();
     });
@@ -103,25 +110,30 @@ async function loadApplications() {
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
+  if (submitting) return;
   const data = new FormData(form);
-  const values = { name: String(data.get('name') || ''), topic: String(data.get('topic') || ''), comment: String(data.get('comment') || '') };
-  if (!permitted('submit', { topic: values.topic, supportCode: String(data.get('supportCode') || '') })) return;
+  const values = { name: String(data.get('name') || '').trim(), topic: String(data.get('topic') || ''), comment: String(data.get('comment') || '') };
+  if (!permitted('submit', { topic: values.topic, supportCode: String(data.get('supportCode') || '') })) {
+    setFormStatus('Отправка временно недоступна. Причина и таймер — в блоке «Контроль действий».', 'error');
+    return;
+  }
   const error = validate(values);
   if (error) { setFormStatus(error, 'error'); return; }
   const currentRevision = revision;
   setFormStatus('Отправляем заявку…', 'pending');
-  form.setAttribute('aria-busy', 'true');
+  setSubmitting(true);
   try {
-    const response = await createApplication({ ...values, name: values.name.trim() });
+    const response = await createApplication(values);
     const result = await response.json();
     if (currentRevision !== revision) return;
+    if (!response.ok) throw new Error(result?.error?.message || 'Не удалось отправить заявку.');
     setFormStatus('Заявка сохранена. Спасибо!', 'success');
     form.reset();
     await loadApplications();
   } catch (error) {
     if (currentRevision === revision) setFormStatus(error.message || 'Не удалось отправить заявку.', 'error');
   } finally {
-    if (currentRevision === revision) form.setAttribute('aria-busy', 'false');
+    if (currentRevision === revision) setSubmitting(false);
   }
 });
 
@@ -133,10 +145,13 @@ filter.addEventListener('change', () => {
 
 document.querySelector('#refresh-button').addEventListener('click', () => {
   if (permitted('refresh')) loadApplications();
+  else document.querySelector('#list-status').textContent = 'Обновление временно недоступно. Список можно читать.';
 });
 
 document.querySelector('#reset-interface').addEventListener('click', () => {
   form.reset();
+  selectedId = null;
+  filter.value = 'all';
   setFormStatus('Интерфейс сброшен.');
   renderApplications();
 });
@@ -157,7 +172,7 @@ document.querySelector('#reset-lab').addEventListener('click', async () => {
   selectedId = null;
   filter.value = 'all';
   form.reset();
-  form.setAttribute('aria-busy', 'false');
+  setSubmitting(false);
   document.querySelector('#service-mode').value = 'normal';
   document.querySelector('#lab-status').textContent = getStorageProblem() || 'Исходные данные восстановлены.';
   setFormStatus('Заявка останется в этом браузере.');
