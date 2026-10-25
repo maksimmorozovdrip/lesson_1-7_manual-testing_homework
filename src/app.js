@@ -113,7 +113,10 @@ form.addEventListener('submit', async event => {
   if (submitting) return;
   const data = new FormData(form);
   const values = { name: String(data.get('name') || '').trim(), topic: String(data.get('topic') || ''), comment: String(data.get('comment') || '') };
-  if (!permitted('submit', { topic: values.topic, supportCode: String(data.get('supportCode') || '') })) return;
+  if (!permitted('submit', { topic: values.topic, supportCode: String(data.get('supportCode') || '') })) {
+    setFormStatus('Отправка временно недоступна. Причина и таймер — в блоке «Контроль действий».', 'error');
+    return;
+  }
   const error = validate(values);
   if (error) { setFormStatus(error, 'error'); return; }
   const currentRevision = revision;
@@ -142,6 +145,7 @@ filter.addEventListener('change', () => {
 
 document.querySelector('#refresh-button').addEventListener('click', () => {
   if (permitted('refresh')) loadApplications();
+  else document.querySelector('#list-status').textContent = 'Обновление временно недоступно. Список можно читать.';
 });
 
 document.querySelector('#reset-interface').addEventListener('click', () => {
